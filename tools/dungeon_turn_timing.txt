@@ -1,0 +1,45 @@
+symbols opensosaria.noi
+run 180
+hold 1
+run 10
+hold none
+waituntil game_state == 1 120 w1
+run 60
+poke player_tx 8 w1
+poke player_ty 6 w1
+poke redraw_needed 1 w1
+run 40
+hold 2
+run 10
+hold none
+waituntil game_state == 3 120 w1
+run 600
+echo [turns] each waituntil reports how long the previous redraw held up input
+hold right
+run 2
+hold none
+waituntil dgn_dx == 255 600 w1
+hold left
+run 2
+hold none
+waituntil dgn_dx == 0 600 w1
+hold right
+run 2
+hold none
+waituntil dgn_dx == 255 600 w1
+hold left
+run 2
+hold none
+waituntil dgn_dx == 0 600 w1
+hold right
+run 2
+hold none
+waituntil dgn_dx == 255 600 w1
+hold left
+run 2
+hold none
+waituntil dgn_dx == 0 600 w1
+run 600
+expect dgn_dx == 0 w1
+expect dgn_dy == 1 w1
+screenshot shots/43_turn_cached.ppm

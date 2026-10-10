@@ -1,0 +1,63 @@
+# Entering and leaving towns and the castle from the overworld.
+# E is button 2. The player is poked onto a town tile (type 6 at world (54,15))
+# or the castle tile (type 4 at world (22,20)), then E is pressed. Positions
+# come from tools/find_places.py.
+symbols opensosaria.noi
+
+echo [1] boot and start the game
+run 180
+hold 1
+run 10
+hold none
+waituntil game_state == 1 120 w1
+run 60
+
+echo [2] press E on the town tile (54,15): enter the town at its start cell (20,20)
+poke player_tx 54 w1
+poke player_ty 15 w1
+poke redraw_needed 1 w1
+run 40
+hold 2
+run 10
+hold none
+waituntil game_state == 2 120 w1
+run 60
+expect game_state == 2 w1
+expect town_which == 0 w1
+expect town_px == 20 w1
+expect town_py == 20 w1
+screenshot shots/30_enter_town.ppm
+
+echo [3] walk south out of the town through the gap in row 21 (x 18..21)
+hold down
+waituntil game_state == 1 900 w1
+hold none
+run 60
+expect game_state == 1 w1
+expect player_tx == 54 w1
+expect player_ty == 15 w1
+screenshot shots/31_back_overworld.ppm
+
+echo [4] press E on the castle tile (22,20): enter the castle at its start cell (1,11)
+poke player_tx 22 w1
+poke player_ty 20 w1
+poke redraw_needed 1 w1
+run 40
+hold 2
+run 10
+hold none
+waituntil game_state == 2 120 w1
+run 60
+expect town_which == 1 w1
+expect town_px == 1 w1
+expect town_py == 11 w1
+screenshot shots/32_enter_castle.ppm
+
+echo [5] walk west out of the castle through the left edge
+hold left
+waituntil game_state == 1 900 w1
+hold none
+run 60
+expect game_state == 1 w1
+expect player_tx == 22 w1
+expect player_ty == 20 w1

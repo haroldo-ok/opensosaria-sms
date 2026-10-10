@@ -1,0 +1,64 @@
+# Dungeon floor test (logic and the first-person view). Enters a dungeon by poking onto a dungeon tile (type 7 at world
+# (8,6)), then presses E (button 2). Up moves forward, left/right turn, down
+# turns around, button 2 climbs a ladder (K in the engine).
+symbols opensosaria.noi
+
+echo [1] boot and start the game
+run 180
+hold 1
+run 10
+hold none
+waituntil game_state == 1 120 w1
+run 600
+
+echo [2] press E on the dungeon tile (8,6): enter depth 1 at (1,1), facing south
+poke player_tx 8 w1
+poke player_ty 6 w1
+poke redraw_needed 1 w1
+run 600
+hold 2
+run 10
+hold none
+waituntil game_state == 3 120 w1
+run 600
+expect game_state == 3 w1
+expect dgn_depth == 1 w1
+expect dgn_px == 1 w1
+expect dgn_py == 1 w1
+screenshot shots/40_dungeon_depth1.ppm
+
+echo [3] up moves forward: (1,1) -> (1,2); (1,2) is open in every floor
+hold up
+run 12
+hold none
+run 600
+expect dgn_px == 1 w1
+expect dgn_py == 2 w1
+
+echo [4] turn right, then up: the wall at x = 0 stops the move
+hold right
+run 12
+hold none
+run 600
+hold up
+run 12
+hold none
+run 600
+expect dgn_px == 1 w1
+expect dgn_py == 2 w1
+
+echo [5] climb the ladder at (7,3) on depth 1 (tile 8, climbs up): leaves the dungeon
+poke dgn_px 7 w1
+poke dgn_py 3 w1
+poke dgn_dx 0 w1
+poke dgn_dy 1 w1
+poke redraw_needed 1 w1
+run 600
+hold 2
+run 10
+hold none
+waituntil game_state == 1 300 w1
+run 600
+expect game_state == 1 w1
+expect player_tx == 8 w1
+expect player_ty == 6 w1

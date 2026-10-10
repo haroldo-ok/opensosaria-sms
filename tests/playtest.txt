@@ -1,0 +1,85 @@
+# Open Sosaria SMS - automated playtest
+# Positions are world tile coordinates from the real Apple II map.
+# Start (40,40) is grassland (tile 1). (31,10) is grassland with sea to the west.
+# Rule: after any poke that moves the player, force a full redraw. The camera
+# is derived from the player position only in the full redraw, so this resyncs it.
+symbols opensosaria.noi
+
+echo [1] boot: ROM boots, display on, title state, several colours
+run 180
+expectvdp display 1
+expect game_state == 0 w1
+expectcolors 2
+screenshot shots/00_title.ppm
+
+echo [2] start button: title -> overworld at the original start position
+hold 1
+run 10
+hold none
+waituntil game_state == 1 120 w1
+run 60
+expect player_tx == 40 w1
+expect player_ty == 40 w1
+expectcolors 4
+screenshot shots/01_overworld_start.ppm
+
+echo [3] walking right: 5 steps east, one tile each
+hold right
+waituntil player_tx == 45 900 w1
+hold none
+run 30
+expect player_tx == 45 w1
+expect player_ty == 40 w1
+screenshot shots/02_right5.ppm
+
+echo [4] walking down: 4 steps south
+hold down
+waituntil player_ty == 44 900 w1
+hold none
+run 30
+expect player_ty == 44 w1
+screenshot shots/03_down4.ppm
+
+echo [5] sea blocks movement: walk left into the sea from (31,10)
+poke player_tx 31 w1
+poke player_ty 10 w1
+poke redraw_needed 1 w1
+run 40
+hold left
+run 60
+hold none
+expect player_tx == 31 w1
+expect player_ty == 10 w1
+
+echo [6] round trip east 20 and back from the start tile: same frame as start
+poke player_tx 40 w1
+poke player_ty 40 w1
+poke redraw_needed 1 w1
+run 40
+hold right
+waituntil player_tx == 60 1200 w1
+hold none
+run 20
+hold left
+waituntil player_tx == 40 1200 w1
+hold none
+run 30
+screenshot shots/04_roundtrip_h.ppm
+
+echo [7] round trip south 12 and north 12 (vertical ring wrap): same frame as start
+# Column x=40 is grassland from y=40 to y=52; sea starts at y=54.
+hold down
+waituntil player_ty == 52 1200 w1
+hold none
+run 20
+hold up
+waituntil player_ty == 40 1200 w1
+hold none
+expect player_tx == 40 w1
+run 30
+screenshot shots/05_roundtrip_v.ppm
+
+echo [8] force a full redraw at the same position (isolates streaming from the redraw)
+poke redraw_needed 1 w1
+run 30
+screenshot shots/06_fullredraw.ppm

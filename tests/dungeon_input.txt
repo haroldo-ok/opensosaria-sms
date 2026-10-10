@@ -1,0 +1,28 @@
+# Dungeon input during a redraw. Enters the dungeon, then taps "up" straight
+# away, while the first-person view is still being drawn. The tap must not be
+# lost: the player has to move from (1,1) to (1,2).
+symbols opensosaria.noi
+
+echo [1] boot and reach the overworld
+run 180
+hold 1
+run 10
+hold none
+waituntil game_state == 1 120 w1
+run 60
+
+echo [2] enter the dungeon, then tap up during the redraw
+poke player_tx 8 w1
+poke player_ty 6 w1
+poke redraw_needed 1 w1
+run 40
+hold 2
+run 10
+hold none
+waituntil game_state == 3 120 w1
+hold up
+run 2
+hold none
+waituntil dgn_py == 2 1200 w1
+expect dgn_py == 2 w1
+expect dgn_depth == 1 w1

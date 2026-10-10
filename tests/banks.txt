@@ -1,0 +1,43 @@
+# Bank-switch test: the map realms 1-3 live in ROM banks 2-3.
+# Each check moves the player into a realm by poke, forces a full redraw, and
+# takes a screenshot. To compare with the pre-banking ROM, run the same script
+# with `symbols` pointing at that build's .noi and the ROM path swapped, then
+# compare the screenshots with tools/compare_frames.py.
+symbols opensosaria.noi
+
+echo [1] boot and start the game
+run 180
+hold 1
+run 10
+hold none
+waituntil game_state == 1 120 w1
+run 60
+
+echo [2] realm 1 (x >= 86): land at (100,40)
+poke player_tx 100 w1
+poke player_ty 40 w1
+poke redraw_needed 1 w1
+run 40
+expect player_tx == 100 w1
+screenshot shots/10_realm1.ppm
+
+echo [3] realm 2 (y >= 86): land at (40,100)
+poke player_tx 40 w1
+poke player_ty 100 w1
+poke redraw_needed 1 w1
+run 40
+screenshot shots/11_realm2.ppm
+
+echo [4] realm 3 (both): land at (100,100)
+poke player_tx 100 w1
+poke player_ty 100 w1
+poke redraw_needed 1 w1
+run 40
+screenshot shots/12_realm3.ppm
+
+echo [5] back in realm 0: start tile again
+poke player_tx 40 w1
+poke player_ty 40 w1
+poke redraw_needed 1 w1
+run 40
+screenshot shots/13_back_realm0.ppm

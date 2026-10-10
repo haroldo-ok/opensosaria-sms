@@ -1,0 +1,20 @@
+symbols opensosaria.noi
+run 180
+hold 1
+run 10
+hold none
+waituntil game_state == 1 120 w1
+run 60
+poke player_tx 8 w1
+poke player_ty 6 w1
+poke redraw_needed 1 w1
+run 40
+hold 2
+run 10
+hold none
+waituntil game_state == 3 120 w1
+run 1200
+expect game_state == 3 w1
+expect redraw_needed == 0 w1
+expect dgn_depth == 1 w1
+screenshot shots/41_probe_settled.ppm

@@ -1,0 +1,51 @@
+# Town view test. Enters the town (bank 4) by poke, since the overworld does
+# not yet enter towns. Frames are checked by tools/town_check.py against the
+# picture decoded from TWN.PIC, so this test also covers the bank data.
+symbols opensosaria.noi
+
+echo [1] boot and start the game
+run 180
+hold 1
+run 10
+hold none
+waituntil game_state == 1 120 w1
+run 60
+
+echo [2] enter the town at the engine start cell (20,20), scroll 15 px
+poke town_which 0 w1
+poke town_px 20 w1
+poke town_py 20 w1
+poke game_state 2 w1
+poke redraw_needed 1 w1
+run 60
+expect town_px == 20 w1
+expect town_py == 20 w1
+screenshot shots/20_town_start.ppm
+
+echo [3] walk right 5 cells along row 20 (cells checked in tools/town_check.py)
+hold right
+waituntil town_px == 25 900 w1
+hold none
+run 30
+expect town_px == 25 w1
+screenshot shots/21_town_right5.ppm
+
+echo [4] force a full redraw at the same cell: must match the streamed frame
+poke redraw_needed 1 w1
+run 30
+screenshot shots/22_town_fullredraw.ppm
+
+echo [5] walk up from (25,20): one step to (25,19), then the wall at (25,18) stops it
+hold up
+run 60
+hold none
+expect town_py == 19 w1
+
+echo [6] castle (bank 5) at its engine start cell (1,11), scroll 0
+poke town_which 1 w1
+poke town_px 1 w1
+poke town_py 11 w1
+poke redraw_needed 1 w1
+run 60
+expect town_px == 1 w1
+screenshot shots/23_castle_start.ppm
