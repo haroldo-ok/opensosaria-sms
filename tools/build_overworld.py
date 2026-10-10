@@ -11,6 +11,8 @@ Outputs (in data/, consumed by folder2c):
     ow_palette.bin        16-byte SMS BG palette (6 colours used)
     ow_sprites.bin        4 SMS 8x8 4bpp tiles for the 16x16 player sprite
     ow_sprite_palette.bin 16-byte SMS sprite palette
+    ow_enemies.bin        12 SMS 8x8 4bpp tiles: the 16x16 overworld monsters
+                          for sea, land and woods (OUT.SHAPES), 4 tiles each
     ow_world_preview.png  visual check of the full 172x172 world (not built in)
 
 Pixel colouring and gap filling reproduce sceneDiskLoader.c in open-sosaria:
@@ -37,6 +39,7 @@ ENGINE_RGB = {
     ORANGE: (255, 86, 0), GREEN: (36, 182, 0), PURPLE: (146, 0, 255),
 }
 SPRITE_WHITE, SPRITE_ORANGE, SPRITE_BLUE = 1, 2, 3
+SPRITE_GREEN, SPRITE_PURPLE, SPRITE_BLACK = 4, 5, 6   # monsters (black is opaque)
 
 
 def strip_bload(data):
@@ -172,6 +175,127 @@ def build_player_sprite():
     return bytes(out)
 
 
+# ---- Overworld monsters (OUT.SHAPES) ----------------------------------------
+# Mirrors sceneDiskLoader_parseShapeTable, _renderEnemiesShapeTable,
+# _plotShapeTable, _colorHGRShapeTable and fillHGRGaps. Pixels are
+# (rgb, opaque) pairs, because the engine keeps alpha apart from colour.
+
+E_BLACK, E_WHITE = (0, 0, 0), (255, 255, 255)
+E_GREEN, E_PURPLE = (36, 182, 0), (146, 0, 255)
+E_BLUE, E_ORANGE = (0, 146, 255), (255, 86, 0)
+E_TO_SPRITE = {E_WHITE: SPRITE_WHITE, E_ORANGE: SPRITE_ORANGE, E_BLUE: SPRITE_BLUE,
+               E_GREEN: SPRITE_GREEN, E_PURPLE: SPRITE_PURPLE, E_BLACK: SPRITE_BLACK}
+
+
+def parse_shape_table(data):
+    """Return [(start, end)] per shape, as sceneDiskLoader_parseShapeTable."""
+    size = len(data)
+    count = data[0] | (data[1] << 8)
+    if not 1 <= count <= 255:
+        raise SystemExit("OUT.SHAPES: bad shape count %d" % count)
+    for extra in (1, 0):
+        words = count + extra
+        if 2 + words * 2 > size:
+            continue
+        ptr = [data[2 + i * 2] | (data[3 + i * 2] << 8) for i in range(words)]
+        if any(p > size for p in ptr) or any(ptr[i] < ptr[i - 1] for i in range(1, words)):
+            continue
+        if extra:
+            ranges = list(zip(ptr[:-1], ptr[1:]))
+            if all(s < e <= size for s, e in ranges):
+                return ranges
+            continue
+        ranges = []
+        for i, s in enumerate(ptr):
+            limit = ptr[i + 1] if i + 1 < count else size
+            if s >= limit:
+                break
+            e = limit
+            for q in range(s, limit):
+                if data[q] == 0:
+                    e = q + 1
+                    break
+            ranges.append((s, e))
+        if len(ranges) == count:
+            return ranges
+    raise SystemExit("OUT.SHAPES: shape table not recognised")
+
+
+def render_enemy_atlas(data, ranges, tw=16, th=16):
+    cols = 8
+    count = len(ranges)
+    rows = (count + cols - 1) // cols
+    w, h = cols * tw, rows * th
+    img = [[(E_BLACK, False) for _ in range(w)] for _ in range(h)]   # transparent
+    dirs = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+
+    def put(x, y, c):
+        if 0 <= x < w and 0 <= y < h:
+            img[y][x] = (c, True)
+
+    for s in range(count - 1, -1, -1):
+        sind = s - count // 2 if s >= count // 2 else s
+        x, y = (sind % cols) * tw, (sind // cols) * th
+        colour = E_BLACK if s >= count // 2 else E_WHITE
+        start, end = ranges[s]
+        for i in range(start, min(end, len(data))):
+            b = data[i]
+            if b == 0:
+                continue
+            a_dir, a_plot = b & 3, (b >> 2) & 1
+            b_dir, b_plot, c_dir = (b >> 3) & 3, (b >> 5) & 1, (b >> 6) & 3
+            if a_plot:
+                put(x, y, colour)
+            x += dirs[a_dir][0]; y += dirs[a_dir][1]
+            if not (b_dir == 0 and not b_plot and c_dir == 0):
+                if b_plot:
+                    put(x, y, colour)
+                x += dirs[b_dir][0]; y += dirs[b_dir][1]
+            if c_dir != 0:
+                x += dirs[c_dir][0]; y += dirs[c_dir][1]
+
+    # _colorHGRShapeTable: isolated lit pixels become artifact colours.
+    lit = lambda p: p[0] != E_BLACK
+    for y in range(h):
+        row = img[y]
+        new = list(row)
+        for x in range(w):
+            if not lit(row[x]):
+                continue
+            left = x > 0 and lit(row[x - 1])
+            right = x < w - 1 and lit(row[x + 1])
+            if not left and not right:
+                new[x] = (E_PURPLE if (x & 1) == 0 else E_GREEN, row[x][1])
+        img[y] = new
+    # fillHGRGaps (it writes alpha 255 too)
+    for y in range(h):
+        row = img[y]
+        for x in range(1, w - 1):
+            cur, prv, nxt = row[x][0], row[x - 1][0], row[x + 1][0]
+            if cur == E_BLACK and prv == nxt and prv != E_BLACK:
+                if prv != E_WHITE:
+                    row[x] = (prv, True)
+                else:
+                    row[x] = (E_GREEN if (x & 1) == 0 else E_PURPLE, True)
+    return img
+
+
+def build_enemy_sprites(shapes_raw, which=(0, 1, 2)):
+    data = strip_bload(shapes_raw)
+    img = render_enemy_atlas(data, parse_shape_table(data))
+    out = bytearray()
+    for cell in which:
+        ox, oy = (cell % 8) * 16, (cell // 8) * 16
+        px = [[0] * 16 for _ in range(16)]
+        for y in range(16):
+            for x in range(16):
+                rgb, opaque = img[oy + y][ox + x]
+                px[y][x] = E_TO_SPRITE[rgb] if opaque else 0
+        for q in range(4):
+            out += encode_sms_tile(px, (q & 1) * 8, (q >> 1) * 8)
+    return bytes(out)
+
+
 def world_tile_preview(realms, path):
     """172x172 world, one pixel per tile, using the palette colours."""
     size = 172
@@ -227,12 +351,17 @@ def main(argv):
     sprite_palette[SPRITE_WHITE] = sms_color_byte(WHITE)
     sprite_palette[SPRITE_ORANGE] = sms_color_byte(ORANGE)
     sprite_palette[SPRITE_BLUE] = sms_color_byte(BLUE)
+    sprite_palette[SPRITE_GREEN] = sms_color_byte(GREEN)
+    sprite_palette[SPRITE_PURPLE] = sms_color_byte(PURPLE)
+    sprite_palette[SPRITE_BLACK] = sms_color_byte(BLACK)
+    out_shapes = open(os.path.join(raw, "disk1", "OUT.SHAPES.bin"), "rb").read()
 
     files = {
         "ow_tiles.bin": tiles,
         "ow_palette.bin": bytes(bg_palette),
         "ow_sprites.bin": build_player_sprite(),
         "ow_sprite_palette.bin": bytes(sprite_palette),
+        "ow_enemies.bin": build_enemy_sprites(out_shapes),
         # Map realms go to ROM banks (see PORTING_PLAN.md). Realms 0-1 -> bank 2,
         # realms 2-3 -> bank 3. Kept out of data/ so folder2c leaves them out.
         "banked/bank2.bin": b"".join(realms[0:2]),

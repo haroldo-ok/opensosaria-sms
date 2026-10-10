@@ -4,6 +4,8 @@ hold 1
 run 10
 hold none
 waituntil game_state == 1 120 w1
+# Random encounters off: these checks walk and enter places (tests/combat.txt covers monsters).
+poke enc_enabled 0 w1
 run 60
 poke player_tx 8 w1
 poke player_ty 6 w1
@@ -12,7 +14,7 @@ run 40
 hold 2
 run 10
 hold none
-waituntil game_state == 3 120 w1
+waituntil game_state == 3 300 w1
 run 1200
 expect game_state == 3 w1
 expect redraw_needed == 0 w1

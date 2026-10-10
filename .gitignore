@@ -1,0 +1,20 @@
+# Build outputs
+*.rel
+*.asm
+*.lst
+*.sym
+*.ihx
+*.lk
+*.map
+*.noi
+*.rst
+link.log
+data.c
+data.h
+gen/
+
+# Generated from the user's disks: never commit (see README)
+data/
+src/dungeon_tables.c
+shots/
+__pycache__/

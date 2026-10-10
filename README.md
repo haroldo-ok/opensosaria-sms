@@ -12,12 +12,16 @@ Reference for the original game: https://archive.org/details/wozaday_Ultima_Tril
 |---|---|
 | Title screen, text, input, state machine | Working |
 | Overworld: terrain, scrolling, movement, collision | Working. Checked in the emulator against a forced full redraw. Not yet compared with the original's look. |
+| Console and stats panel (H.P., food, experience, gold) | Working in the overworld. Messages are the disk's own text. Not shown in towns or dungeons yet. |
+| Overworld monsters and combat | Working: random encounters by terrain, monsters blocking the path, their attacks, the Attack command, kills, gold and experience, death and resurrection. Vehicles, spells, and ranged fire are not ported. |
+| Food and time | Working in the overworld (step cost, the 5-second "PASS"). |
 | Towns and castles: picture, scrolling, collision | Working in the emulator. Town and castle pictures scroll horizontally. Shops, dialogue, and guards are not ported. |
 | Dungeons: floors, movement, turning, trapdoors, ladders | Working. Floors come from this port's own deterministic generator, so they are not identical to the original. |
 | Dungeons: first-person wireframe view | Working. The 280 px view is scaled to 256 px. Monsters and console messages are not drawn. |
 | Dungeon input | Fixed in the emulator. Taps during the redraw are latched. |
 | Dungeon turn speed | About 0.8 s per turn in the emulator (43 to 49 frames). Slower than the original; see Known issues. |
-| Combat, encounters, monsters | Not started |
+| Dungeon and town combat | Not started |
+| Character generator | Not started. A new game starts from fixed stats (see `src/player.c`). |
 | Space (pseudo-3D) section | Not started |
 | Mondain final battle and the Time Machine | Not started |
 | Save and load (SRAM) | Not started |
@@ -30,10 +34,14 @@ Reference for the original game: https://archive.org/details/wozaday_Ultima_Tril
 - **Input during the redraw.** Two different keys pressed during one redraw are merged into one action, so the second is lost.
 - **Build warning.** `src/dungeon_tables.c` gives "overflow in implicit constant conversion" for one value, 53445, in an `int` table. It is open in `PORTING_PLAN.md` until the table's use is checked.
 - **Temporary debug code.** `dgn_dbg_stage` markers in `src/dungeon_view.c` are there for `tools/dungeon_redraw_stages.txt`. Remove them before a release.
+- **RAM is nearly full.** The dungeon view's buffers take about 7.3 KB of the 8 KB. About 60 bytes are left between the data and the deepest stack. See "RAM budget" in `PORTING_PLAN.md` before adding state.
+- **HUD split on hardware.** The console under the scrolling map relies on a line interrupt at line 159. The emulator does not model interrupt latency, so this needs checking on an accurate emulator or a console.
+- **Console pacing.** Queued messages appear at once instead of one every 0.15 s; input still waits 0.15 s per queued line.
 
 ## Requirements
 
 - **devkitSMS** toolchain, including `smstest` (the headless emulator used by the tests). Set it up with the sega-master-system-devkitsms skill: https://github.com/haroldo-ok/sega-master-system-skill-for-claude. The Makefile expects it in `~/.devkitsms` (override with `DEVKIT=...`).
+- **A patched `smstest`.** The tests need `tools/smstest-patches.patch`: per-line horizontal scroll (for the HUD split), `sym+offset` addresses, the signed `s8` width, and the maximum in `timers`. Apply it to the skill's `assets/smstest/smstest.c`, then build with `gcc -O2 -w -o ~/.devkitsms/bin/smstest smstest.c z80.c`.
 - **SDCC 4.5** (`sdcc` and `sdasz80`). On Debian and Ubuntu, `sudo apt-get install sdcc`.
 - **Python 3 with Pillow** (`python3-pil`) for the data scripts.
 
@@ -60,18 +68,23 @@ python3 tools/build_overworld.py ~/ultima-raw data
 python3 tools/build_town.py ~/ultima-raw data
 python3 tools/extract_dungeon_table.py ~/ultima-raw data/dungeon_pe.bin
 python3 tools/extract_dungeon_tables.py ~/ultima-raw src/dungeon_tables.c
+python3 tools/build_text.py ~/ultima-raw data
 ```
 
-`build_overworld.py` writes `data/*.bin` and `data/banked/bank2.bin`, `bank3.bin`. `build_town.py` writes `data/banked/bank4.bin` and `bank5.bin`. `make` turns these into C arrays (`data.c`, `gen/bankN.c`).
+`extract_disks.py` names each output folder after its disk image. The other scripts read `disk1/` and `disk2/`, so rename the two folders if your images have other names.
+
+`build_overworld.py` writes `data/*.bin` (including the overworld monster sprites from `OUT.SHAPES`) and `data/banked/bank2.bin`, `bank3.bin`. `build_town.py` writes `data/banked/bank4.bin` and `bank5.bin`. `build_text.py` writes the game text and the monster table to `data/banked/bank6.bin` and `bank7.bin`. `make` turns these into C arrays (`data.c`, `gen/bankN.c`).
 
 ## Build and test
 
 ```
 make            # builds opensosaria.sms
-make playtest   # runs six headless emulator suites
+make playtest   # runs seven headless emulator suites
 ```
 
-`make playtest` runs `tests/playtest.txt`, `banks.txt`, `town.txt`, `enter.txt`, `dungeon.txt`, and `dungeon_input.txt`. The screenshots go to `shots/`.
+`make playtest` runs `tests/playtest.txt`, `banks.txt`, `town.txt`, `enter.txt`, `dungeon.txt`, `dungeon_input.txt`, and `combat.txt`. The screenshots go to `shots/`. All suites except `combat.txt` turn random encounters off (`poke enc_enabled 0`).
+
+For cycle timings, build with `make clean && make EXTRA_CFLAGS=-DDEBUG_TIMERS` and add `timers` to a script (see `src/debug.h`). Never ship that build: it writes port 0x06.
 
 Two more probes, which are not in `make playtest`:
 
@@ -85,18 +98,24 @@ Run one with `smstest opensosaria.sms tools/<file>.txt`.
 ## Controls
 
 - **Title:** press a button to start.
-- **Overworld and towns:** the D-pad moves. Stand on an entrance and press button 2 to enter it.
+- **Overworld:** the D-pad moves. Button 1 attacks (A). Button 2 enters the town, castle, or dungeon under the player (E). Standing still for 5 seconds passes a turn.
+- **Towns and castles:** the D-pad moves. Walk off the edge to leave.
 - **Dungeon:** Up moves forward. Left and right turn. Down turns around. Button 2 climbs a ladder: tile 8 goes up, tiles 7 and 9 go down. Climbing up from depth 1 returns to the overworld. Walls and tiles above 9 block movement. Trapdoors drop the player one floor.
 
 ## Project layout
 
-- `src/main.c`: state machine (title, overworld, town, dungeon) and the main loop.
-- `src/overworld.c`, `src/town.c`: overworld and town/castle rendering, scrolling, and collision.
+- `src/main.c`: state machine (title, overworld, town, dungeon), the main loop, and the HUD split interrupt.
+- `src/overworld.c`: overworld rendering, scrolling, turns, entering places, death and resurrection.
+- `src/encounter.c`: overworld monsters: spawning, their attacks, dodging, the Attack command.
+- `src/hud.c`, `src/hud_asm.s`: the console and stats panel, and the paced name-table writer.
+- `src/player.c`: the player record, food and time.
+- `src/text.c`: game text and the monster table from banks 6 and 7.
+- `src/town.c`: town/castle rendering, scrolling, and collision.
 - `src/dungeon.c`: dungeon floors, movement, climbing, and input latching.
 - `src/dungeon_view.c`: first-person wireframe renderer and the conversion to SMS tiles.
 - `src/scan_asm.s`: Z80 cell scan used by the dungeon view.
 - `src/dungeon_tables.c`: generated from BEVERY (see above). Not in the source archive.
-- `tools/`: data extraction and conversion scripts, emulator probes, and `count_views.c`.
+- `tools/`: data extraction and conversion scripts (`ultima_text.py` mirrors the engine's text loader), emulator probes, `count_views.c`, and the `smstest` patch.
 - `tests/`: playtest scripts for `smstest`.
 - `PORTING_PLAN.md`: design notes, measurements, decisions, and open items.
 
@@ -105,6 +124,9 @@ Run one with `smstest opensosaria.sms tools/<file>.txt`.
 - Dungeon floors use a deterministic generator seeded from the world position and depth. The original seeds from `srand` and the game clock, so its floors vary by platform and time.
 - The dungeon view is scaled from 280 px to 256 px horizontally, and it is drawn in one colour.
 - The town and castle pictures scroll horizontally rather than being scaled or cropped.
+- The console is 21 columns wide (the original has about 29), so long messages wrap onto a second line.
+- There is no character generator yet; the player is "STRANGER" with fixed stats.
+- Random numbers come from a 16-bit xorshift seeded when the game starts, not the host C library.
 
 ## License
 

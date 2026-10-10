@@ -11,6 +11,8 @@ hold 1
 run 10
 hold none
 waituntil game_state == 1 120 w1
+# Random encounters off: these checks walk and enter places (tests/combat.txt covers monsters).
+poke enc_enabled 0 w1
 run 60
 
 echo [2] realm 1 (x >= 86): land at (100,40)

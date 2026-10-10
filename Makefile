@@ -15,14 +15,15 @@ FOLDER2C := $(DEVKIT)/bin/folder2c
 
 # Banks in use. Bank n sits at file offset n*0x10000 + 0x8000 for the linker
 # (the bank number is the top byte; see the skill's Makefile.banked).
-BANKS       := 2 3 4 5
-BANKFLAGS   := -Wl-b_BANK2=0x28000 -Wl-b_BANK3=0x38000 -Wl-b_BANK4=0x48000 -Wl-b_BANK5=0x58000
+BANKS       := 2 3 4 5 6 7
+BANKFLAGS   := -Wl-b_BANK2=0x28000 -Wl-b_BANK3=0x38000 -Wl-b_BANK4=0x48000 -Wl-b_BANK5=0x58000 -Wl-b_BANK6=0x68000 -Wl-b_BANK7=0x78000
 BANKRELS    := $(addsuffix .rel,$(addprefix bank,$(BANKS)))
 
-CFLAGS   := -mz80 -I$(DEVKIT)/include --peep-file $(DEVKIT)/include/peep-rules.txt -I. -Isrc
+# EXTRA_CFLAGS=-DDEBUG_TIMERS turns on the emulator cycle timers (src/debug.h).
+CFLAGS   := $(EXTRA_CFLAGS) -mz80 -I$(DEVKIT)/include --peep-file $(DEVKIT)/include/peep-rules.txt -I. -Isrc
 LDFLAGS  := -mz80 --no-std-crt0 --data-loc 0xC000 $(BANKFLAGS)
 
-OBJS     := main.rel overworld.rel town.rel dungeon.rel dungeon_view.rel scan_asm.rel dungeon_tables.rel data.rel
+OBJS     := main.rel overworld.rel player.rel hud.rel text.rel encounter.rel town.rel dungeon.rel dungeon_view.rel scan_asm.rel hud_asm.rel dungeon_tables.rel data.rel
 
 all: $(PROG).sms
 
@@ -32,7 +33,7 @@ all: $(PROG).sms
 data.c data.h: $(wildcard data/*)
 	$(FOLDER2C) data data
 
-%.rel: src/%.c src/overworld.h data.h
+%.rel: src/%.c src/*.h data.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 data.rel: data.c
@@ -40,6 +41,10 @@ data.rel: data.c
 
 # Hand-written Z80 for the dungeon cell scan (src/scan_asm.s).
 scan_asm.rel: src/scan_asm.s
+	sdasz80 -o $@ $<
+
+# Hand-written Z80 for the paced HUD cell writes (src/hud_asm.s).
+hud_asm.rel: src/hud_asm.s
 	sdasz80 -o $@ $<
 
 # Banked data: data/banked/bank<N>.bin becomes gen/bank<N>.c, a single array
@@ -73,6 +78,7 @@ playtest: $(PROG).sms
 	smstest $(PROG).sms tests/enter.txt
 	smstest $(PROG).sms tests/dungeon.txt
 	smstest $(PROG).sms tests/dungeon_input.txt
+	smstest $(PROG).sms tests/combat.txt
 
 clean:
 	rm -f *.rel *.ihx *.sym *.lst *.map *.noi *.lk *.asm *.rst link.log \

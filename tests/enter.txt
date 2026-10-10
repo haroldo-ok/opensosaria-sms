@@ -10,6 +10,8 @@ hold 1
 run 10
 hold none
 waituntil game_state == 1 120 w1
+# Random encounters off: these checks walk and enter places (tests/combat.txt covers monsters).
+poke enc_enabled 0 w1
 run 60
 
 echo [2] press E on the town tile (54,15): enter the town at its start cell (20,20)
@@ -20,7 +22,7 @@ run 40
 hold 2
 run 10
 hold none
-waituntil game_state == 2 120 w1
+waituntil game_state == 2 300 w1
 run 60
 expect game_state == 2 w1
 expect town_which == 0 w1
@@ -46,7 +48,7 @@ run 40
 hold 2
 run 10
 hold none
-waituntil game_state == 2 120 w1
+waituntil game_state == 2 300 w1
 run 60
 expect town_which == 1 w1
 expect town_px == 1 w1

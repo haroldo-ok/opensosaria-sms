@@ -1,0 +1,100 @@
+--- smstest.c.orig	2026-10-10 20:37:46.353572617 -0300
++++ smstest.c	2026-10-10 20:43:22.934868110 -0300
+@@ -152,6 +152,7 @@
+     return 0xFF;                                  /* 0xDD */
+ }
+ static unsigned long long dt_start[16], dt_acc[16], dt_cnt[16];
++static unsigned long long dt_max[16];
+ static void port_out(z80* z, uint8_t port, uint8_t val) {
+     (void)z;
+     if (port == 0x04) {                                    /* debug trace byte stream (debug builds only) */
+@@ -162,7 +163,7 @@
+     }
+     if (port == 0x06) {                                    /* debug timers (debug builds only) */
+         int id = (val >> 1) & 15;
+-        if (val & 1) dt_start[id] = cpu.cyc; else { dt_acc[id] += cpu.cyc - dt_start[id]; dt_cnt[id]++; }
++        if (val & 1) dt_start[id] = cpu.cyc; else { unsigned long long d = cpu.cyc - dt_start[id]; dt_acc[id] += d; dt_cnt[id]++; if (d > dt_max[id]) dt_max[id] = d; }
+         return;
+     }
+     if (port >= 0x40 && port < 0x80) {                    /* PSG */
+@@ -292,8 +293,13 @@
+         }
+     }
+ }
++/* Horizontal scroll as each active line starts (R8 is latched per line on the
++ * VDP), so a line-interrupt split, such as a fixed HUD under a scrolling
++ * map, shows in screenshots. A write during line N applies from line N+1. */
++static uint8_t line_xscroll[ACTIVE_LINES];
+ static void run_frame(void) {
+     for (cur_line = 0; cur_line < LINES_PER_FRAME; cur_line++) {
++        if (cur_line < ACTIVE_LINES) line_xscroll[cur_line] = vdp_reg[8];
+         if (cur_line <= ACTIVE_LINES) {
+             if (cur_line == ACTIVE_LINES) vdp_status |= 0x80;   /* vblank */
+             if (line_counter == 0) { vdp_line_pending = 1; line_counter = vdp_reg[10]; }
+@@ -339,7 +345,7 @@
+     uint16_t satbase = (uint16_t)(vdp_reg[5] & 0x7E) << 7;
+     uint16_t sprtiles = (vdp_reg[6] & 0x04) ? 0x2000 : 0x0000;
+     int spr16 = vdp_reg[1] & 0x02;
+-    uint8_t xscroll = vdp_reg[8], yscroll = vdp_reg[9];
++    uint8_t yscroll = vdp_reg[9];
+     int display_on = vdp_reg[1] & 0x40;
+     for (int y = 0; y < 192; y++) for (int x = 0; x < 256; x++) {
+         uint8_t rgb[3]; uint8_t bd = cram[16 + (vdp_reg[7] & 0x0F)];
+@@ -352,7 +358,7 @@
+         for (int y = 0; y < 192; y++) {
+             for (int x = 0; x < 256; x++) {
+                 int ys = (lock_v && x >= 192) ? 0 : yscroll;
+-                int xs = (lock_h && y < 16)   ? 0 : xscroll;
++                int xs = (lock_h && y < 16)   ? 0 : line_xscroll[y];
+                 int sy = (y + ys) % 224;
+                 int sx = (x - xs) & 0xFF;
+                 uint16_t ent = ntbase + ((sy >> 3) * 32 + (sx >> 3)) * 2;
+@@ -443,7 +449,22 @@
+     fclose(f);
+     printf("symbols: loaded %d from %s\n", nsyms, path);
+ }
++static int sym_lookup_base(const char* name, uint32_t* out);
++/* "sym+N" (N decimal or 0x hex) addresses a field inside a struct or array. */
+ static int sym_lookup(const char* name, uint32_t* out) {
++    const char* plus = strchr(name, '+');
++    if (plus && plus != name) {
++        char base[66];
++        size_t n = (size_t)(plus - name);
++        if (n >= sizeof base) return 0;
++        memcpy(base, name, n); base[n] = 0;
++        if (!sym_lookup_base(base, out)) return 0;
++        *out += (uint32_t)strtoul(plus + 1, NULL, 0);
++        return 1;
++    }
++    return sym_lookup_base(name, out);
++}
++static int sym_lookup_base(const char* name, uint32_t* out) {
+     char alt[66];
+     snprintf(alt, sizeof alt, "_%s", name);
+     for (int i = 0; i < nsyms; i++)
+@@ -476,6 +497,7 @@
+ 
+ static long read_val(uint32_t addr, const char* width) {
+     if (!strcmp(width, "w1")) return ram[addr & 0x1FFF];
++    if (!strcmp(width, "s8")) return (int8_t)ram[addr & 0x1FFF];
+     long v = ram[addr & 0x1FFF] | (ram[(addr + 1) & 0x1FFF] << 8);
+     if (!strcmp(width, "s16") && v >= 0x8000) v -= 0x10000;
+     return v;
+@@ -563,7 +585,7 @@
+             if (!sym_lookup(c2, &addr)) { printf("FAIL: no symbol %s\n", c2); failures++; continue; }
+             long v = strtol(c3, NULL, 0);
+             ram[addr & 0x1FFF] = (uint8_t)(v & 0xFF);
+-            if (n < 4 || strcmp(c4, "w1")) ram[(addr + 1) & 0x1FFF] = (uint8_t)((v >> 8) & 0xFF);
++            if (n < 4 || (strcmp(c4, "w1") && strcmp(c4, "s8"))) ram[(addr + 1) & 0x1FFF] = (uint8_t)((v >> 8) & 0xFF);
+             printf("poke: %s <- %ld\n", c2, v);
+         }
+         else if (!strcmp(c1, "print") && n >= 2) {
+@@ -630,7 +652,7 @@
+             else { printf("FAIL: vdp display=%d expected %s\n", on, c3); failures++; }
+         }
+         else if (!strcmp(c1, "timers")) {
+-            for (int i = 0; i < 16; i++) if (dt_cnt[i]) printf("timer %d: %llu calls, %llu cycles, %llu avg\n", i, dt_cnt[i], dt_acc[i], dt_acc[i] / dt_cnt[i]);
++            for (int i = 0; i < 16; i++) if (dt_cnt[i]) printf("timer %d: %llu calls, %llu cycles, %llu avg, %llu max\n", i, dt_cnt[i], dt_acc[i], dt_acc[i] / dt_cnt[i], dt_max[i]);
+         }
+         else if (!strcmp(c1, "pacemin") && n >= 2) { pace_min = strtoul(c2, NULL, 0); printf("pacemin: %lu cycles\n", pace_min); }
+         else if (!strcmp(c1, "expectpace") && n >= 2) {

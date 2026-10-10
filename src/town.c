@@ -10,6 +10,7 @@
  * ------------------------------------------------------------------------- */
 #include "SMSlib.h"
 #include "town.h"
+#include "overworld.h"
 
 extern const unsigned char bank4_data[];   /* from banked/bank4.bin (town) */
 extern const unsigned char bank5_data[];   /* from banked/bank5.bin (castle) */
@@ -168,8 +169,8 @@ void town_add_sprites(void) {
     /* Player: a 16x16 metasprite centred on the cell. SAT Y is drawn one line low. */
     int left = (int)town_px * 7 + 3 - 8 - (int)scroll_px();
     int top  = (int)town_py * 7 + 3 - 8;
-    SMS_addSpriteClipping(left,     top - 1, 4);
-    SMS_addSpriteClipping(left + 8, top - 1, 5);
-    SMS_addSpriteClipping(left,     top + 7, 6);
-    SMS_addSpriteClipping(left + 8, top + 7, 7);
+    SMS_addSpriteClipping(left,     top - 1, OW_PLAYER_TILE);
+    SMS_addSpriteClipping(left + 8, top - 1, OW_PLAYER_TILE + 1);
+    SMS_addSpriteClipping(left,     top + 7, OW_PLAYER_TILE + 2);
+    SMS_addSpriteClipping(left + 8, top + 7, OW_PLAYER_TILE + 3);
 }

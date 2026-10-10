@@ -1,0 +1,111 @@
+# Overworld monsters, combat, death and resurrection (encounter.c, overworld.c).
+#
+# Fields of `player` (src/player.h), read with sym+offset:
+#   +0 hits (w2)  +2 strength  +3 agility  +8 gold (w2)  +10 experience (w2)
+#   +12 food (w2)  +18 weapon
+# enc_monster is signed (s8): -1 = no monster, 0 = dodged, 6..20 = a monster.
+symbols opensosaria.noi
+
+echo [1] boot and start: new-game stats, console prompt, stats panel
+run 180
+hold 1
+run 10
+hold none
+waituntil game_state == 1 120 w1
+poke enc_enabled 0 w1
+run 60
+expect player+0 == 100
+expect player+8 == 100
+expect player+10 == 1
+expect player+18 == 1 w1
+expect enc_monster == -1 s8
+screenshot shots/50_hud_start.ppm
+
+echo [2] a monster in the way: the step is blocked and the monster is drawn
+# strength and agility 0 make the stat dodge impossible; the seed fixes the
+# vehicle roll. An orc (16) group of one, 5 hp.
+poke player+2 0 w1
+poke player+3 0 w1
+poke rng_state 0x7777
+poke enc_monster 16 s8
+poke enc_hp 5
+poke enc_number 1 w1
+hold right
+run 8
+hold none
+waituntil ow_acted == 0 120 w1
+run 120
+expect player_tx == 40
+expect enc_shown == 1 w1
+expect enc_monster == 16 s8
+screenshot shots/51_blocked_by_orc.ppm
+
+echo [3] the orc attacks after each action: hits never go up
+expect player+0 <= 100
+
+echo [4] attack (button 1) until the orc dies: experience and gold go up
+poke player+2 20 w1
+poke player+3 20 w1
+hold 1
+run 4
+hold none
+run 200
+hold 1
+run 4
+hold none
+run 200
+hold 1
+run 4
+hold none
+run 200
+hold 1
+run 4
+hold none
+run 200
+waituntil enc_monster == -1 600 s8
+run 60
+expect enc_shown == 0 w1
+expect player+10 > 1
+expect player+8 > 100
+screenshot shots/52_orc_killed.ppm
+
+echo [5] attack with nothing there: "NOTHING", no change
+poke player+8 500
+hold 1
+run 4
+hold none
+run 200
+expect player+8 == 500
+expect enc_monster == -1 s8
+
+echo [6] death: resurrection with 99 hits, no gold, food 20, on land in realm 0
+poke player+0 0
+run 30
+waituntil player+0 == 99 120
+expect player+8 == 0
+expect player+12 == 20
+expect player+18 == 0 w1
+waituntil ow_lag == 0 600
+run 60
+expect player_tx < 64
+expect player_ty < 64
+expect game_state == 1 w1
+screenshot shots/53_resurrected.ppm
+
+echo [7] random encounters: walking on land with encounters on finds a monster
+poke player_tx 40
+poke player_ty 40
+poke redraw_needed 1 w1
+run 40
+poke enc_enabled 1 w1
+poke rng_state 0x0BAD
+hold right
+waituntil enc_monster > 5 1500 s8
+hold none
+run 120
+expect enc_monster >= 6 s8
+expect enc_monster <= 20 s8
+expect enc_number >= 1 w1
+
+echo [8] the line-interrupt HUD split never had to be skipped
+expect hud_split_missed == 0 w1

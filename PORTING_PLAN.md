@@ -12,7 +12,10 @@ Source: `delcodigo/open-sosaria` v0.6.0 (C99, MIT). Scope chosen: **full port (v
 | Playtest harness (5 checks) | Passing |
 | Disk-image data extraction | Disks received and validated (`tools/extract_disks.py`); all 26 required files extracted with the engine's expected sizes. Raw output in `/home/user/ultima-raw/` (not in the project). |
 | Overworld (terrain render, ring-buffered scroll, movement, collision) | Working. 8-step playtest passes; horizontal and vertical ring streaming matches a forced full redraw pixel-for-pixel. Terrain verified on screen (grass, forest, mountains, lake, town icon). Fixed: terrain tiles were at VRAM tile 448 (0x3800), which overlapped the name table; now at 384–447 (`OW_TILE_BASE`). Scroll direction verified on screen (right 5 shifts content −80 px, down 4 shifts −64 px). Sprite Y corrected by −1 (SAT Y is drawn one line low), so the player's top edge sits on row 96. Not yet compared with the original game's look. |
-| Towns / dungeons / castles / space / Mondain | Not started |
+| Towns, castles, dungeons | Views, movement and collision working (see below). Shops, NPCs and dungeon monsters not started. |
+| Console, stats panel, game text | Working in the overworld (see "Console and stats panel"). |
+| Overworld monsters and combat | Working (see "Overworld combat"). |
+| Space / Mondain | Not started |
 
 ## What the source actually depends on
 
@@ -58,7 +61,7 @@ Source: `delcodigo/open-sosaria` v0.6.0 (C99, MIT). Scope chosen: **full port (v
 ## VRAM layout (SMS, 16 KiB)
 
 - Tile slots 0–447 are usable for graphics. The name table (tilemap) is at 0x3800, which is tile slot 448, and the sprite attribute table is above it.
-- Current use: tile 0 blank (title), tiles 4–7 player sprite, tiles 384–447 terrain (16 terrain × 4 SMS tiles), font wherever SMSlib places it.
+- Current use: font at tiles 0–95 (loaded by `load_font`, one pixel lower than SMSlib's), tiles 64–67 player sprite and 68–79 overworld monsters (they overwrite the glyphs for characters 96–111, which the game text never uses), tiles 384–447 terrain (16 terrain × 4 SMS tiles). The player sprite used to be at tiles 4–7, over the glyphs `$%&'`.
 
 ## ROM banking plan
 
@@ -107,7 +110,7 @@ The `*MOVE` files (`OUT MOVE`, `TWN MOVE`, `CAS MOVE`, `DNG MOVE 1`, `SPA MOVE`)
 4. **Done (town and castle view).** Display, walking, and collision work. Source: `src/town.c`, `src/town.h`. The view scrolls in 8-px steps (decided: horizontal scroll). `tests/town.txt` checks the town at (20,20) and (25,20), a forced redraw, and the castle at (1,11). `tools/town_check.py` compares each frame pixel-for-pixel with the picture decoded from the disk. All frames match. Entry and exit work: button 2 (E) on an overworld tile of type 6 opens the town at (20,20), and on type 4 opens the castle at (1,11). The town exits through the bottom edge and the castle through the left edge, back to the overworld tile the player came from. `tests/enter.txt` covers both directions, and the entry frames match the decoded pictures. Not done: NPCs and shops, and the 16x16 player sprite, which is larger than the original 7x7 cell.
 5. Add space and Mondain assets last.
 
-**Input map (SMS pad).** Button 1 = start / title. Button 2 = E (enter a town, castle, or dungeon from its tile). Directions move. Other engine commands (T, B, I, etc.) are not yet mapped.
+**Input map (SMS pad).** Button 1 = start on the title, A (attack) in the overworld. Button 2 = E (enter a town, castle, or dungeon from its tile). Directions move. Other engine commands (T, B, I, etc.) are not yet mapped.
 
 **Open question for the town view.** The picture is 280 px wide and the SMS screen is 256 px. Options: (A) horizontal scroll, 1:1 pixels, camera follows the player over a 24-px range; (B) scale to 256 px, showing the whole town with slight distortion; (C) crop the right 24 px. Option A is closest to the original.
 
@@ -306,3 +309,86 @@ Build notes:
 Open items:
 - src/dungeon_tables.c line 91 has the value 53445 in an int table. The compiler warns it overflows a signed int. Check which table it belongs to, and whether the game reads it.
 - Temporary dgn_dbg_stage markers are still in src/dungeon_view.c for the stage probe. Remove them before release.
+
+
+## Game text and the monster table (banks 6 and 7)
+
+**Source.** `tools/ultima_text.py` is a Python mirror of the engine's text loader in `sceneDiskLoader.c`: the quoted strings of the BASIC programs and the SET files (`ultimaStrings[]`), the name tables in BEVERY (stats, races, types, armours, vehicles, weapons, spells, places), and the enemy table (name, group, rank, decoded from Applesoft floats). The engine's name overrides (monsters 6, 7, 10, ... from strings 14-25, spell 3, place 44) are applied the same way.
+
+**Check.** On the user's disks it finds 1264 strings, and the numbers match the engine's uses: 98 is "COMMAND: ", 252 "YOU ARE BEING ATTACKED", 259 ", YOU ARE DEAD.". The enemy table has 46 entries; 6-20 are the overworld monsters (sea 6-9, woods 10-14, land 15-20).
+
+**Layout.** `tools/build_text.py` writes the header, a 16-bit index and the first strings to bank 6, and the rest to bank 7 (index bit 15). The header holds the first id of each name table and the monster group and rank bytes. `src/text.c` copies a string into a caller buffer and restores the slot-2 bank, so no banked pointer escapes. The C code uses the engine's string numbers directly.
+
+## Console and stats panel
+
+**Layout.** As in the original's 280x192 screen, the map takes the top 160 px (10 terrain rows, was 12) and the bottom four text rows are the console. Columns 0-20 hold the last four console lines; columns 22-31 hold H.P., FOOD, EXP. and GOLD with the labels from the disk (strings 90, 92, 94, 96). The original console is about 29 characters wide, so lines longer than 21 wrap at a space. Colour, flash and typewriter codes (`^1`, `^F`, `^T1`) are dropped.
+
+**The split.** The map scrolls on both axes through the 32x28 ring; the console must not scroll sideways. A line interrupt at line 159 writes X scroll 0 (`frame_interrupt` in `main.c`), so the console always reads tilemap columns 0-31. Vertical scroll cannot change mid-frame on the SMS, so the console lives in the ring too, at rows `vslot+20..vslot+23`, and a vertical step rewrites all four of its rows.
+
+**Interrupt safety.** The VDP address latch is shared, so the handler must not write a register while main code is writing VRAM. Main sets `vram_busy` for its whole VRAM phase, and the handler skips the split (and counts `hud_split_missed`, display on only) if it fires during it. Every playtest suite now passes with `hud_split_missed == 0` asserted in `tests/combat.txt`.
+
+**Making it fit.** The VRAM phase must end before line 159: about 52,000 cycles from VBlank on NTSC. Measured with the new debug timers (`src/debug.h`), the first version took up to 107,000 cycles on a step. Changes:
+- Stat values are turned into tiles in the logic phase (`hud_tick`), not in the VRAM phase. Labels are cached at `hud_reset`.
+- `src/hud_asm.s` writes runs of name-table cells at 29-31 cycles per write (about 60 per cell), against about 150 per cell through `SMS_setTile` from C. `expectpace 0` with `pacemin 27` passes on every suite.
+- A vertical step streams the new map row as two runs per tilemap row, with one bank switch for its 16 terrain lookups.
+- The terrain lookup uses byte coordinates and shifts; `%` and 32-bit divides are gone from the per-frame paths.
+
+Worst case now: 45,300 cycles for a vertical step with a full console redraw (row 28,600, console 15,900). That leaves about 7,000 cycles before line 159. PAL has a longer VBlank, so NTSC is the limit.
+
+**Latency.** The emulator applies a register write during line N from line N+1. On hardware the write can land a line later. The font is loaded one pixel lower (`load_font` in `main.c`) so the first pixel row of every glyph is blank; a split that lands on line 161 is then invisible. Glyphs that use their bottom row (comma, semicolon, underscore) already have a blank top row and stay as they are. **This needs a check on an accurate emulator or a console.**
+
+**Pacing.** The engine shows queued lines one every 0.15 s and blocks input until the queue is empty. There is no RAM for queued text here, so a queued line is shown at once and adds 9 frames (0.15 s) of input wait. The turn rhythm is the same; the lines do not appear one by one.
+
+## Overworld combat
+
+**Source.** `src/encounter.c` follows `sceneOverworld_spawnMonsters`, `sceneOverworld_resolveEncounter`, and the dodge, attack and kill parts of `playerOverworld.c`. `src/overworld.c` follows the turn loop of `sceneOverworld_update` (input waits for the console and the lag timer; after each action the monsters act and "COMMAND: " appears), `playerOverworld_updateMovement`, `_updateEnter` and `sceneOverworld_attemptResurrection`.
+
+**What works.**
+- Encounters: after each action with no monster, a 10 % chance (5 % on land) of a group by terrain, with the engine's HP and group-size formulas, including the growth with game time.
+- A monster group blocks the next step unless the player dodges (strength + agility, vehicle roll). The monster sprite (from `OUT.SHAPES`, sea / land / woods, decoded with the engine's shape-table rules) is drawn in the blocked direction.
+- Monster attacks after each action, with the armour defence formula; hits reduce H.P.
+- Attack (button 1): weapon range for sea monsters and hidden archers, the "not applicable" weapons, the hit roll and damage. Kills give experience and gold; the next group member gets new HP.
+- Death (H.P. or food at 0): the resurrection message, weapons and gold lost, 99 H.P., 20 food, a random land tile in realm 0 (the open-sosaria softlock check is kept), 5 s lag.
+- Food and time: the step cost `(7 - vehicle) / 14`, the action time `+0.6`, the 5-second "PASS" penalty. Food and time are a whole part plus hundredths, so no float or 32-bit divide is needed.
+- Entering: the engine's messages ("COMMAND: ENTERING", the place name from the TD$ table, "THE CITY OF ...") and its 1.5 s transition. Signposts show their name only.
+
+**Random numbers.** The engine uses `rand01()` floats from the host C library. Here `rnd()` is a 16-bit xorshift (7, 9, 8) returning a fraction `r / 65536`, and the formulas use fixed point. The seed comes from the frame counter at the title screen. Playtests poke `rng_state` for a fixed sequence.
+
+**Not done.** Vehicles (and so Fire, Board, X-it), spells (Cast), Ztats, Inform, Get, Open, Drop, Ready, signpost stat gains, the alert sounds. The pad has two buttons: button 1 is Attack and button 2 is Enter. The other commands will need a menu.
+
+**Character.** There is no character generator. A new game uses `player_new_game()`: the engine's gold, food, H.P., weapon (dagger) and armour (leather), strength and agility 20, the other stats 15, name "STRANGER".
+
+**Tests.** `tests/combat.txt`: new-game stats, a monster blocking the path, its sprite, attacking until it dies (experience and gold go up), attacking nothing, death and resurrection (99 H.P., 0 gold, 20 food, in realm 0), and a random encounter while walking. The other suites poke `enc_enabled 0` so monsters do not block their walks, and entry waits went from 120 to 300 frames for the 1.5 s transition.
+
+## RAM budget
+
+The SMS has 8 KB. After this round the data ends at 0xDF2F and the deepest stack seen in any suite is 0xDF6D (`spmin`), so about 60 bytes are free.
+
+| User | Bytes |
+|---|---|
+| Dungeon view (`fb`, `uniq`, `hash_slot`, `prev_tile`) | about 7,300 |
+| SMSlib sprite table | 192 |
+| Console (4 x 21 text, labels, values) | 124 |
+| Player record | 37 |
+| Everything else | about 270 |
+
+The dungeon buffers are only used in the dungeon, but nothing else large can share them yet, because the console and player state must live in every scene. Options before adding more state (vehicles map, inventory, town NPCs):
+1. Compare dungeon cell patterns against VRAM instead of keeping `uniq` (1,280 bytes) in RAM. Costs a VRAM read per hash hit.
+2. Use cartridge RAM as work RAM for the dungeon framebuffer. Shares the slot-2 window with the data banks, so the dungeon code would have to map it around its reads.
+3. Put scene-only state for towns and the overworld in a union with the dungeon buffers.
+
+Check `spmin` against `s__HEAP` in `opensosaria.map` after every change.
+
+## Test tooling
+
+`tools/smstest-patches.patch` changes the skill's `smstest.c`:
+- horizontal scroll is latched at the start of each line, so screenshots show the HUD split;
+- addresses can be `sym+offset`, for fields of `player`;
+- `s8` reads a signed byte (`enc_monster` is -1 for none);
+- `timers` also prints the maximum per timer.
+
+Build: apply the patch to `assets/smstest/smstest.c` from the skill, then `gcc -O2 -w -o ~/.devkitsms/bin/smstest smstest.c z80.c`. These are worth sending upstream to the skill.
+
+Debug timers: `make clean && make EXTRA_CFLAGS=-DDEBUG_TIMERS` writes port 0x06 around the VRAM phase (timer 0), `overworld_vblank` (1) and the console draw (2). Port 0x06 on a real SMS mirrors the memory control port, so that build must never run on hardware.
+
+**Logic cost (open).** Formatting a console line in C is slow: a "COMMAND: EAST" replacement takes about 21,000 cycles and an attack about 55,000, so a turn's logic can spill into a second frame. It does not affect correctness (the VRAM phase starts at the next VBlank), but `emit` and `text_get` are the place to speed up next.
