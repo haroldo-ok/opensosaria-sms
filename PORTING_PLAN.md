@@ -325,7 +325,11 @@ Open items:
 
 **The split.** The map scrolls on both axes through the 32x28 ring; the console must not scroll sideways. A line interrupt at line 159 writes X scroll 0 (`frame_interrupt` in `main.c`), so the console always reads tilemap columns 0-31. Vertical scroll cannot change mid-frame on the SMS, so the console lives in the ring too, at rows `vslot+20..vslot+23`, and a vertical step rewrites all four of its rows.
 
-**Interrupt safety.** The VDP address latch is shared, so the handler must not write a register while main code is writing VRAM. Main sets `vram_busy` for its whole VRAM phase, and the handler skips the split (and counts `hud_split_missed`, display on only) if it fires during it. Every playtest suite now passes with `hud_split_missed == 0` asserted in `tests/combat.txt`.
+**Restoring the map's scroll (flicker fix).** The split only sets X to 0; the map's X scroll has to come back before the next frame. At first the main loop's VRAM phase did that. A turn's logic (formatting console text, the monsters' turn) plus the VRAM phase can run past one frame. The next VBlank was then missed, and that frame showed the map at X = 0: a 16- to 248-px jump on almost every step, in every direction. This showed on hardware; the old renderer drew each screenshot from the final register state, so it hid it. Now the VBlank interrupt (`SMS_setFrameInterruptHandler`, `vblank_interrupt` in `main.c`) writes X from `ow_scroll_x` every frame, however long the logic takes. `ow_scroll_x` changes only in `apply_scroll`, inside the VRAM phase, together with the streamed edge it belongs to. Vertical scroll is not involved: the VDP latches it once per frame, and it is only written during VBlank.
+
+`tests/walk_frames.txt` walks 90 frames in each direction with `liverender` on and saves every frame; `tools/check_walk_frames.py` fails if any frame is not the previous one or the previous one moved by one tile, or if the console rows show non-text colours. With the VBlank restore turned off it finds 43 jumps; with it, none.
+
+**Interrupt safety.** The VDP address latch is shared, so neither handler may write a register while main code is writing VRAM. Main sets `vram_busy` for its whole VRAM phase, and a handler skips its write (and counts `hud_split_missed`, display on only) if it fires during it. Every playtest suite now passes with `hud_split_missed == 0` asserted in `tests/combat.txt`.
 
 **Making it fit.** The VRAM phase must end before line 159: about 52,000 cycles from VBlank on NTSC. Measured with the new debug timers (`src/debug.h`), the first version took up to 107,000 cycles on a step. Changes:
 - Stat values are turned into tiles in the logic phase (`hud_tick`), not in the VRAM phase. Labels are cached at `hud_reset`.
@@ -385,7 +389,8 @@ Check `spmin` against `s__HEAP` in `opensosaria.map` after every change.
 - horizontal scroll is latched at the start of each line, so screenshots show the HUD split;
 - addresses can be `sym+offset`, for fields of `player`;
 - `s8` reads a signed byte (`enc_monster` is -1 for none);
-- `timers` also prints the maximum per timer.
+- `timers` also prints the maximum per timer;
+- `liverender 1` draws each line from the VRAM, CRAM and registers as they are when the beam reaches it (vertical scroll latched at line 0), so screenshots show late VRAM writes and mid-frame register changes as hardware does. Without it, a screenshot is drawn from the state at the moment it is taken.
 
 Build: apply the patch to `assets/smstest/smstest.c` from the skill, then `gcc -O2 -w -o ~/.devkitsms/bin/smstest smstest.c z80.c`. These are worth sending upstream to the skill.
 

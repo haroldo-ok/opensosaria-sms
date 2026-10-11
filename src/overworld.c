@@ -191,9 +191,16 @@ static unsigned char hud_row0(void) {
     return (unsigned char)((vslot + HUD_ROW_OFFSET) % MAP_ROWS_CELLS);
 }
 
+/* Called only in the VRAM phase (or with the display off), after the edge
+ * for this camera position has been streamed. ow_scroll_x is what the VBlank
+ * interrupt restores after the HUD split (main.c), so it must only change
+ * together with the tilemap it belongs to. */
+volatile unsigned char ow_scroll_x = 0;
+
 static void apply_scroll(void) {
     /* Horizontal register is negated relative to vertical (see smslib notes). */
-    SMS_setBGScrollX((unsigned char)((256 - (unsigned int)hslot * 8u) & 255u));
+    ow_scroll_x = (unsigned char)((256 - (unsigned int)hslot * 8u) & 255u);
+    SMS_setBGScrollX(ow_scroll_x);
     SMS_setBGScrollY((unsigned char)((unsigned int)vslot * 8u));
 }
 

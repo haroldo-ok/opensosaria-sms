@@ -1,0 +1,29 @@
+# Frame-by-frame check of overworld walking, with each line drawn as the beam
+# reaches it (liverender, from tools/smstest-patches.patch). Every frame of
+# 90 frames of walking in each direction is saved to shots/walk/, then
+# tools/check_walk_frames.py checks that:
+#   - the map never jumps: each frame equals the previous one, or the previous
+#     one moved by exactly one 16-px tile (a jump was the hardware flicker,
+#     the map shown at X scroll 0 after the HUD split);
+#   - the console rows hold only text colours (no map tiles mid-step).
+symbols opensosaria.noi
+liverender 1
+
+run 180
+hold 1
+run 10
+hold none
+waituntil game_state == 1 120 w1
+poke enc_enabled 0 w1
+run 60
+
+hold right
+shots shots/walk/r 90 1
+hold down
+shots shots/walk/d 90 1
+hold left
+shots shots/walk/l 90 1
+hold up
+shots shots/walk/u 90 1
+hold none
+expect hud_split_missed == 0 w1

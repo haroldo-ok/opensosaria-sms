@@ -23,25 +23,40 @@ unsigned char game_state    = STATE_TITLE;
 unsigned char redraw_needed = 1;     /* set by logic, consumed after VBlank */
 unsigned int  frame_count   = 0;
 
-/* HUD split: the line interrupt at line 159 sets X scroll to 0, so the
- * overworld's bottom four rows (the console) do not scroll sideways. It must
- * not touch the VDP while main code is writing VRAM (the address latch is
- * shared; see the skill's interrupts notes), so main sets vram_busy around
- * its VRAM work. hud_split_missed counts frames where the split was skipped;
- * the playtests expect it to stay 0. */
+/* HUD split. The VDP latches X scroll per line but Y scroll only once per
+ * frame, so only X is split: the overworld console stays in the tilemap ring
+ * below the map (overworld.c), and the line interrupt at line 159 sets X
+ * scroll to 0 so the console does not move sideways.
+ *
+ * The map's X scroll must then come back before the next frame's line 0.
+ * That is done in the VBlank interrupt, from ow_scroll_x, and not by the
+ * main loop: a turn's logic can run past a frame, and that frame would show
+ * the map at X = 0 (the flicker seen on hardware and in liverender).
+ *
+ * Neither handler may touch the VDP while main code is writing VRAM (the
+ * address latch is shared; see the skill's interrupts notes), so main sets
+ * vram_busy around its VRAM work. hud_split_missed counts frames where a
+ * write had to be skipped; the playtests expect it to stay 0. */
 #define HUD_SPLIT_LINE 159
 volatile unsigned char vram_busy = 0;
 unsigned char hud_split = 0;
 unsigned char display_on = 0;        /* only frames on screen can show a missed split */
 unsigned char hud_split_missed = 0;
 
-static void frame_interrupt(void) {
+static void line_interrupt(void) {
     if (hud_split) {
         if (!vram_busy) INLINE_SMS_setBGScrollX(0);
         else if (display_on) hud_split_missed++;
     }
     PSGFrame();
     PSGSFXFrame();
+}
+
+static void vblank_interrupt(void) {
+    if (hud_split) {
+        if (!vram_busy) INLINE_SMS_setBGScrollX(ow_scroll_x);
+        else if (display_on) hud_split_missed++;
+    }
 }
 
 /* SMSlib's font, moved down one pixel. The HUD split's scroll write can
@@ -109,7 +124,8 @@ void main(void) {
     SMS_loadSpritePalette(ow_sprite_palette_bin);
     overworld_init_graphics();
 
-    SMS_setLineInterruptHandler(&frame_interrupt);
+    SMS_setLineInterruptHandler(&line_interrupt);
+    SMS_setFrameInterruptHandler(&vblank_interrupt);
     SMS_setLineCounter(HUD_SPLIT_LINE);
     SMS_enableLineInterrupt();
 

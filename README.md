@@ -35,13 +35,13 @@ Reference for the original game: https://archive.org/details/wozaday_Ultima_Tril
 - **Build warning.** `src/dungeon_tables.c` gives "overflow in implicit constant conversion" for one value, 53445, in an `int` table. It is open in `PORTING_PLAN.md` until the table's use is checked.
 - **Temporary debug code.** `dgn_dbg_stage` markers in `src/dungeon_view.c` are there for `tools/dungeon_redraw_stages.txt`. Remove them before a release.
 - **RAM is nearly full.** The dungeon view's buffers take about 7.3 KB of the 8 KB. About 60 bytes are left between the data and the deepest stack. See "RAM budget" in `PORTING_PLAN.md` before adding state.
-- **HUD split on hardware.** The console under the scrolling map relies on a line interrupt at line 159. The emulator does not model interrupt latency, so this needs checking on an accurate emulator or a console.
+- **HUD split on hardware.** The console under the scrolling map relies on a line interrupt at line 159 (X scroll 0) and the VBlank interrupt (the map's X scroll back). The emulator does not model interrupt latency, so the exact split line needs checking on an accurate emulator or a console.
 - **Console pacing.** Queued messages appear at once instead of one every 0.15 s; input still waits 0.15 s per queued line.
 
 ## Requirements
 
 - **devkitSMS** toolchain, including `smstest` (the headless emulator used by the tests). Set it up with the sega-master-system-devkitsms skill: https://github.com/haroldo-ok/sega-master-system-skill-for-claude. The Makefile expects it in `~/.devkitsms` (override with `DEVKIT=...`).
-- **A patched `smstest`.** The tests need `tools/smstest-patches.patch`: per-line horizontal scroll (for the HUD split), `sym+offset` addresses, the signed `s8` width, and the maximum in `timers`. Apply it to the skill's `assets/smstest/smstest.c`, then build with `gcc -O2 -w -o ~/.devkitsms/bin/smstest smstest.c z80.c`.
+- **A patched `smstest`.** The tests need `tools/smstest-patches.patch`: per-line horizontal scroll (for the HUD split), `liverender` (lines drawn as the beam reaches them), `sym+offset` addresses, the signed `s8` width, and the maximum in `timers`. Apply it to the skill's `assets/smstest/smstest.c`, then build with `gcc -O2 -w -o ~/.devkitsms/bin/smstest smstest.c z80.c`.
 - **SDCC 4.5** (`sdcc` and `sdasz80`). On Debian and Ubuntu, `sudo apt-get install sdcc`.
 - **Python 3 with Pillow** (`python3-pil`) for the data scripts.
 
@@ -79,10 +79,10 @@ python3 tools/build_text.py ~/ultima-raw data
 
 ```
 make            # builds opensosaria.sms
-make playtest   # runs seven headless emulator suites
+make playtest   # runs eight headless emulator suites
 ```
 
-`make playtest` runs `tests/playtest.txt`, `banks.txt`, `town.txt`, `enter.txt`, `dungeon.txt`, `dungeon_input.txt`, and `combat.txt`. The screenshots go to `shots/`. All suites except `combat.txt` turn random encounters off (`poke enc_enabled 0`).
+`make playtest` runs `tests/playtest.txt`, `banks.txt`, `town.txt`, `enter.txt`, `dungeon.txt`, `dungeon_input.txt`, `combat.txt`, and `walk_frames.txt`. The last saves every frame of walking in each direction, drawn line by line as on hardware, and `tools/check_walk_frames.py` checks that the map never jumps and the console never shows map tiles. The screenshots go to `shots/`. All suites except `combat.txt` turn random encounters off (`poke enc_enabled 0`).
 
 For cycle timings, build with `make clean && make EXTRA_CFLAGS=-DDEBUG_TIMERS` and add `timers` to a script (see `src/debug.h`). Never ship that build: it writes port 0x06.
 

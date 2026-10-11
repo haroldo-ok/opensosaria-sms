@@ -33,6 +33,7 @@ extern unsigned char overworld_enter;
 extern unsigned char overworld_respawned;  /* set after a resurrection; main.c redraws */
 extern unsigned char ow_acted;             /* playerActed, read by the playtests */
 extern unsigned int  ow_lag;               /* lagTime in frames */
+extern volatile unsigned char ow_scroll_x; /* map X scroll, restored each VBlank (main.c) */
 
 unsigned char overworld_terrain(unsigned int wx, unsigned int wy);  /* banked map read */
 void overworld_init_graphics(void);   /* display must be off */

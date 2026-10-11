@@ -79,6 +79,9 @@ playtest: $(PROG).sms
 	smstest $(PROG).sms tests/dungeon.txt
 	smstest $(PROG).sms tests/dungeon_input.txt
 	smstest $(PROG).sms tests/combat.txt
+	@rm -rf shots/walk && mkdir -p shots/walk
+	smstest $(PROG).sms tests/walk_frames.txt
+	python3 tools/check_walk_frames.py shots/walk
 
 clean:
 	rm -f *.rel *.ihx *.sym *.lst *.map *.noi *.lk *.asm *.rst link.log \
